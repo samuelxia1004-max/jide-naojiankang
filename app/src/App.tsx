@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeft,
   BookOpen,
   Brain,
   CheckCircle2,
@@ -42,6 +43,7 @@ import {
   summarizeNBack,
   type NBackResponse,
 } from "./lib/nback";
+import { shuffleItems } from "./lib/randomize";
 import {
   getResultBand,
   getResultCopy,
@@ -96,7 +98,7 @@ function rotateIndex(current: number, total: number) {
 
 function buildSequenceFor(setIndex: number, level: number) {
   const currentSet = nBackSets[setIndex];
-  return buildNBackSequence(level, currentSet.length, currentSet.stimuli);
+  return buildNBackSequence(level, currentSet.length, shuffleItems(currentSet.stimuli));
 }
 
 const recallLures = [
@@ -901,6 +903,8 @@ function ChecklistItem({
 }
 
 type TrainingMode = "nback" | "spaced" | "daily" | ChoiceTrainingKind;
+type TrainingStep = "types" | "sets" | "exercise";
+type TrainingSetOption = { id: string; title: string };
 
 const coreTrainingOptions: Array<{ id: TrainingMode; title: string; shortTitle: string; description: string }> = [
   { id: "nback", title: "前后对照", shortTitle: "前后", description: "看当前字和前面第几个字是否一样。" },
@@ -914,48 +918,134 @@ const coreTrainingOptions: Array<{ id: TrainingMode; title: string; shortTitle: 
   })),
 ];
 
+function getTrainingSets(mode: TrainingMode): TrainingSetOption[] {
+  if (mode === "nback") return nBackSets;
+  if (mode === "spaced") return spacedRecallSets;
+  if (mode === "daily") return dailyTaskSets;
+  return choiceTrainingModules.find((module) => module.id === mode)?.sets ?? [];
+}
+
 function TrainingView({ onSaved, goHome }: { onSaved: () => void; goHome: () => void }) {
-  const [activeTab, setActiveTab] = useState<TrainingMode>("nback");
-  const activeChoiceModule = choiceTrainingModules.find((module) => module.id === activeTab);
+  const [step, setStep] = useState<TrainingStep>("types");
+  const [selectedMode, setSelectedMode] = useState<TrainingMode | null>(null);
+  const [selectedSetIndex, setSelectedSetIndex] = useState(0);
+  const [runKey, setRunKey] = useState(0);
+  const selectedOption = coreTrainingOptions.find((option) => option.id === selectedMode) ?? null;
+  const selectedSets = selectedMode ? getTrainingSets(selectedMode) : [];
+  const activeChoiceModule = selectedMode ? choiceTrainingModules.find((module) => module.id === selectedMode) : undefined;
+
+  const chooseMode = (mode: TrainingMode) => {
+    setSelectedMode(mode);
+    setSelectedSetIndex(0);
+    setStep("sets");
+  };
+
+  const startTraining = () => {
+    setRunKey((current) => current + 1);
+    setStep("exercise");
+  };
+
+  const returnToSets = () => {
+    setStep("sets");
+  };
 
   return (
     <section className="screen flow-screen">
       <ScreenHeader title="记忆训练" subtitle="多类型练习，只记录表现和趋势，不代表医学评估。" goHome={goHome} />
-      <div className="training-mode-grid" aria-label="训练类型">
-        {coreTrainingOptions.map((option) => (
-          <button
-            key={option.id}
-            className={activeTab === option.id ? "active" : ""}
-            onClick={() => setActiveTab(option.id)}
-          >
-            <strong>{option.shortTitle}</strong>
-            <span>{option.description}</span>
+      {step === "types" && (
+        <div className="training-mode-grid" aria-label="训练类型">
+          {coreTrainingOptions.map((option) => (
+            <button key={option.id} onClick={() => chooseMode(option.id)}>
+              <strong>{option.shortTitle}</strong>
+              <span>{option.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {step === "sets" && selectedMode && selectedOption && (
+        <Panel>
+          <div className="training-flow-heading">
+            <button className="secondary-button compact" onClick={() => setStep("types")}>
+              <ArrowLeft size={20} />
+              训练类型
+            </button>
+            <div>
+              <span>已选择</span>
+              <h2>{selectedOption.title}</h2>
+              <p>{selectedOption.description}</p>
+            </div>
+          </div>
+          <SetToolbar
+            label="选择题库"
+            sets={selectedSets}
+            selectedIndex={selectedSetIndex}
+            onSelect={setSelectedSetIndex}
+            onNext={() => setSelectedSetIndex((current) => rotateIndex(current, selectedSets.length))}
+          />
+          <div className="training-library-summary">
+            第 {selectedSetIndex + 1} / {selectedSets.length} 套 · {selectedSets[selectedSetIndex]?.title}
+          </div>
+          <button className="primary-button" onClick={startTraining}>
+            确定开始
           </button>
-        ))}
-      </div>
-      {activeTab === "nback" && <NBackTrainer onSaved={onSaved} />}
-      {activeTab === "spaced" && <SpacedRecallTrainer onSaved={onSaved} />}
-      {activeTab === "daily" && <DailyTaskTrainer onSaved={onSaved} />}
-      {activeChoiceModule && <ChoiceTrainingModuleView module={activeChoiceModule} onSaved={onSaved} />}
+        </Panel>
+      )}
+      {step === "exercise" && selectedMode && (
+        <>
+          <div className="training-exercise-bar">
+            <button className="secondary-button compact" onClick={returnToSets}>
+              <ArrowLeft size={20} />
+              选择题库
+            </button>
+            {selectedOption && (
+              <span>
+                {selectedOption.title} · {selectedSets[selectedSetIndex]?.title}
+              </span>
+            )}
+          </div>
+          {selectedMode === "nback" && (
+            <NBackTrainer key={`${selectedMode}-${selectedSetIndex}-${runKey}`} setIndex={selectedSetIndex} onSaved={onSaved} onChooseSet={returnToSets} />
+          )}
+          {selectedMode === "spaced" && (
+            <SpacedRecallTrainer key={`${selectedMode}-${selectedSetIndex}-${runKey}`} setIndex={selectedSetIndex} onSaved={onSaved} onChooseSet={returnToSets} />
+          )}
+          {selectedMode === "daily" && (
+            <DailyTaskTrainer key={`${selectedMode}-${selectedSetIndex}-${runKey}`} setIndex={selectedSetIndex} onSaved={onSaved} onChooseSet={returnToSets} />
+          )}
+          {activeChoiceModule && (
+            <ChoiceTrainingModuleView
+              key={`${selectedMode}-${selectedSetIndex}-${runKey}`}
+              module={activeChoiceModule}
+              setIndex={selectedSetIndex}
+              onSaved={onSaved}
+              onChooseSet={returnToSets}
+            />
+          )}
+        </>
+      )}
     </section>
   );
 }
 
-function NBackTrainer({ onSaved }: { onSaved: () => void }) {
-  const [setIndex, setSetIndex] = useState(0);
+type TrainingExerciseProps = {
+  setIndex: number;
+  onSaved: () => void;
+  onChooseSet: () => void;
+};
+
+function NBackTrainer({ onSaved, setIndex, onChooseSet }: TrainingExerciseProps) {
   const currentSet = nBackSets[setIndex];
   const [level, setLevel] = useState(1);
-  const [sequence, setSequence] = useState(() => buildSequenceFor(0, 1));
+  const [sequence, setSequence] = useState(() => buildSequenceFor(setIndex, 1));
   const [trialIndex, setTrialIndex] = useState(0);
   const [responses, setResponses] = useState<NBackResponse[]>([]);
   const [startedAt, setStartedAt] = useState(Date.now());
   const [summary, setSummary] = useState<ReturnType<typeof summarizeNBack> | null>(null);
   const [trend, setTrend] = useState("");
 
-  const reset = (nextLevel = level, nextSetIndex = setIndex) => {
-    setSetIndex(nextSetIndex);
+  const reset = (nextLevel = level) => {
     setLevel(nextLevel);
-    setSequence(buildSequenceFor(nextSetIndex, nextLevel));
+    setSequence(buildSequenceFor(setIndex, nextLevel));
     setTrialIndex(0);
     setResponses([]);
     setStartedAt(Date.now());
@@ -996,13 +1086,6 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
 
   return (
     <Panel>
-      <SetToolbar
-        label="选择前后对照套题"
-        sets={nBackSets}
-        selectedIndex={setIndex}
-        onSelect={(nextIndex) => reset(level, nextIndex)}
-        onNext={() => reset(level, rotateIndex(setIndex, nBackSets.length))}
-      />
       <div className="training-topline">
         <span>
           看前 {level} 步 · {currentSet.title}
@@ -1039,9 +1122,9 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
           </div>
           <p>下一轮建议继续从“看前 {level} 步”开始。</p>
           <div className="button-row">
-            <button className="secondary-button" onClick={() => reset(level, rotateIndex(setIndex, nBackSets.length))}>
+            <button className="secondary-button" onClick={onChooseSet}>
               <Shuffle size={20} />
-              换套练习
+              选择题库
             </button>
             <button className="primary-button" onClick={() => reset(level)}>
               <RotateCcw size={20} />
@@ -1054,19 +1137,21 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-function SpacedRecallTrainer({ onSaved }: { onSaved: () => void }) {
-  const [setIndex, setSetIndex] = useState(0);
+function SpacedRecallTrainer({ onSaved, setIndex, onChooseSet }: TrainingExerciseProps) {
   const currentSet = spacedRecallSets[setIndex];
   const [stage, setStage] = useState<"learn" | "recall" | "done">("learn");
   const [selected, setSelected] = useState<string[]>([]);
+  const [memoryItems, setMemoryItems] = useState(() => shuffleItems(currentSet.targets));
+  const [choiceItems, setChoiceItems] = useState(() => shuffleItems(currentSet.choices));
   const [startedAt, setStartedAt] = useState(Date.now());
   const [trend, setTrend] = useState("");
   const score = selected.filter((item) => currentSet.targets.includes(item)).length;
   const falseAlarms = selected.filter((item) => !currentSet.targets.includes(item)).length;
 
-  const reset = (nextSetIndex = setIndex) => {
-    setSetIndex(nextSetIndex);
+  const reset = () => {
     setSelected([]);
+    setMemoryItems(shuffleItems(currentSet.targets));
+    setChoiceItems(shuffleItems(currentSet.choices));
     setStartedAt(Date.now());
     setTrend("");
     setStage("learn");
@@ -1099,13 +1184,6 @@ function SpacedRecallTrainer({ onSaved }: { onSaved: () => void }) {
 
   return (
     <Panel>
-      <SetToolbar
-        label="选择间隔回忆套题"
-        sets={spacedRecallSets}
-        selectedIndex={setIndex}
-        onSelect={reset}
-        onNext={() => reset(rotateIndex(setIndex, spacedRecallSets.length))}
-      />
       {stage === "learn" && (
         <>
           <div className="set-meta">
@@ -1113,7 +1191,7 @@ function SpacedRecallTrainer({ onSaved }: { onSaved: () => void }) {
           </div>
           <h2>先记住四样东西</h2>
           <div className="word-strip spaced">
-            {currentSet.targets.map((item) => (
+            {memoryItems.map((item) => (
               <span key={item}>{item}</span>
             ))}
           </div>
@@ -1127,7 +1205,7 @@ function SpacedRecallTrainer({ onSaved }: { onSaved: () => void }) {
         <>
           <h2>你记得哪些？</h2>
           <div className="choice-list two-col">
-            {currentSet.choices.map((item) => (
+            {choiceItems.map((item) => (
               <ChecklistItem key={item} label={item} checked={selected.includes(item)} onChange={() => toggle(item)} />
             ))}
           </div>
@@ -1150,9 +1228,9 @@ function SpacedRecallTrainer({ onSaved }: { onSaved: () => void }) {
             <p>{trend}</p>
           </div>
           <div className="button-row">
-            <button className="secondary-button" onClick={() => reset(rotateIndex(setIndex, spacedRecallSets.length))}>
+            <button className="secondary-button" onClick={onChooseSet}>
               <Shuffle size={20} />
-              换套练习
+              选择题库
             </button>
             <button className="primary-button" onClick={() => reset()}>
               <RotateCcw size={20} />
@@ -1165,19 +1243,19 @@ function SpacedRecallTrainer({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-function DailyTaskTrainer({ onSaved }: { onSaved: () => void }) {
-  const [setIndex, setSetIndex] = useState(0);
+function DailyTaskTrainer({ onSaved, setIndex, onChooseSet }: TrainingExerciseProps) {
   const currentSet = dailyTaskSets[setIndex];
   const [selected, setSelected] = useState<string[]>([]);
+  const [choiceItems, setChoiceItems] = useState(() => shuffleItems(currentSet.choices));
   const [startedAt, setStartedAt] = useState(Date.now());
   const [done, setDone] = useState(false);
   const [trend, setTrend] = useState("");
   const score = selected.filter((item) => currentSet.targets.includes(item)).length;
   const falseAlarms = selected.filter((item) => !currentSet.targets.includes(item)).length;
 
-  const reset = (nextSetIndex = setIndex) => {
-    setSetIndex(nextSetIndex);
+  const reset = () => {
     setSelected([]);
+    setChoiceItems(shuffleItems(currentSet.choices));
     setStartedAt(Date.now());
     setDone(false);
     setTrend("");
@@ -1210,13 +1288,6 @@ function DailyTaskTrainer({ onSaved }: { onSaved: () => void }) {
 
   return (
     <Panel>
-      <SetToolbar
-        label="选择日常计划套题"
-        sets={dailyTaskSets}
-        selectedIndex={setIndex}
-        onSelect={reset}
-        onNext={() => reset(rotateIndex(setIndex, dailyTaskSets.length))}
-      />
       {!done ? (
         <>
           <div className="set-meta">
@@ -1226,7 +1297,7 @@ function DailyTaskTrainer({ onSaved }: { onSaved: () => void }) {
           <p>{currentSet.prompt}</p>
           <p className="hint-text">请选出 3 个更稳妥、更有帮助的做法。选多了也没关系，练习重点是慢慢分辨。</p>
           <div className="choice-list">
-            {currentSet.choices.map((item) => (
+            {choiceItems.map((item) => (
               <ChecklistItem key={item} label={item} checked={selected.includes(item)} onChange={() => toggle(item)} />
             ))}
           </div>
@@ -1255,9 +1326,9 @@ function DailyTaskTrainer({ onSaved }: { onSaved: () => void }) {
             </ul>
           </div>
           <div className="button-row">
-            <button className="secondary-button" onClick={() => reset(rotateIndex(setIndex, dailyTaskSets.length))}>
+            <button className="secondary-button" onClick={onChooseSet}>
               <Shuffle size={20} />
-              换套练习
+              选择题库
             </button>
             <button className="primary-button" onClick={() => reset()}>
               <RotateCcw size={20} />
@@ -1270,19 +1341,29 @@ function DailyTaskTrainer({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-function ChoiceTrainingModuleView({ module, onSaved }: { module: ChoiceTrainingModule; onSaved: () => void }) {
-  const [setIndex, setSetIndex] = useState(0);
+function ChoiceTrainingModuleView({
+  module,
+  setIndex,
+  onSaved,
+  onChooseSet,
+}: {
+  module: ChoiceTrainingModule;
+  setIndex: number;
+  onSaved: () => void;
+  onChooseSet: () => void;
+}) {
   const currentSet = module.sets[setIndex];
   const [selected, setSelected] = useState<string[]>([]);
+  const [choiceItems, setChoiceItems] = useState(() => shuffleItems(currentSet.choices));
   const [startedAt, setStartedAt] = useState(Date.now());
   const [done, setDone] = useState(false);
   const [trend, setTrend] = useState("");
   const score = selected.filter((item) => currentSet.targets.includes(item)).length;
   const falseAlarms = selected.filter((item) => !currentSet.targets.includes(item)).length;
 
-  const reset = (nextSetIndex = setIndex) => {
-    setSetIndex(nextSetIndex);
+  const reset = () => {
     setSelected([]);
+    setChoiceItems(shuffleItems(currentSet.choices));
     setStartedAt(Date.now());
     setDone(false);
     setTrend("");
@@ -1315,13 +1396,6 @@ function ChoiceTrainingModuleView({ module, onSaved }: { module: ChoiceTrainingM
 
   return (
     <Panel>
-      <SetToolbar
-        label={`选择${module.title}套题`}
-        sets={module.sets}
-        selectedIndex={setIndex}
-        onSelect={reset}
-        onNext={() => reset(rotateIndex(setIndex, module.sets.length))}
-      />
       {!done ? (
         <>
           <div className="set-meta">
@@ -1332,7 +1406,7 @@ function ChoiceTrainingModuleView({ module, onSaved }: { module: ChoiceTrainingM
           <p>{currentSet.prompt}</p>
           <p className="hint-text">请选择 3 项。干扰项有些也像是对的，慢慢比对比一次点完更好。</p>
           <div className="choice-list">
-            {currentSet.choices.map((item) => (
+            {choiceItems.map((item) => (
               <ChecklistItem key={item} label={item} checked={selected.includes(item)} onChange={() => toggle(item)} />
             ))}
           </div>
@@ -1369,9 +1443,9 @@ function ChoiceTrainingModuleView({ module, onSaved }: { module: ChoiceTrainingM
             </ul>
           </div>
           <div className="button-row">
-            <button className="secondary-button" onClick={() => reset(rotateIndex(setIndex, module.sets.length))}>
+            <button className="secondary-button" onClick={onChooseSet}>
               <Shuffle size={20} />
-              换套练习
+              选择题库
             </button>
             <button className="primary-button" onClick={() => reset()}>
               <RotateCcw size={20} />
