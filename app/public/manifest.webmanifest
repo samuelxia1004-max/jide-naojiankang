@@ -1,0 +1,17 @@
+{
+  "name": "记得",
+  "short_name": "记得",
+  "description": "中文、非诊断、适老化的脑健康自检与记忆练习工具。",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F8F4EA",
+  "theme_color": "#0F766E",
+  "icons": [
+    {
+      "src": "./pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
