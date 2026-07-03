@@ -21,9 +21,13 @@ describe("n-back logic", () => {
     expect(summary.misses).toBe(1);
   });
 
-  it("builds deterministic match positions", () => {
-    const sequence = buildNBackSequence(1, 8);
-    expect(isExpectedMatch(sequence, 4, 1)).toBe(true);
-    expect(isExpectedMatch(sequence, 1, 1)).toBe(false);
+  it("builds deterministic but less predictable match positions", () => {
+    const sequence = buildNBackSequence(1, 16);
+    const repeated = buildNBackSequence(1, 16);
+    const matchCount = sequence.filter((_, index) => isExpectedMatch(sequence, index, 1)).length;
+
+    expect(sequence).toEqual(repeated);
+    expect(matchCount).toBeGreaterThanOrEqual(3);
+    expect(matchCount).toBeLessThanOrEqual(5);
   });
 });

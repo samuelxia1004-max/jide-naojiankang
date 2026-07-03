@@ -18,8 +18,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
 import { dailyTaskSets, guideCards, nBackSets, selfCheckMiniTasks, selfCheckSets, spacedRecallSets } from "./contentBanks";
+import {
+  choiceTrainingModules,
+  choiceTrainingSetCount,
+  type ChoiceTrainingKind,
+  type ChoiceTrainingModule,
+} from "./expandedTraining";
 import { buildExportBundle, toCsv } from "./lib/exportData";
 import { createId, createParticipantAlias } from "./lib/ids";
+import { scoreClockDrawing, type ClockAutoScore, type ClockStroke } from "./lib/clockScoring";
 import {
   buildNBackSequence,
   isExpectedMatch,
@@ -61,6 +68,9 @@ function emptyClockChecklist(): ClockChecklist {
     hasNumbers: false,
     hasHands: false,
     userFeltDifficult: false,
+    autoScore: 0,
+    numberSectors: 0,
+    handLines: 0,
   };
 }
 
@@ -227,7 +237,7 @@ function HomeView({
         </div>
         <h1>把一次担心，变成一次清楚的记录。</h1>
         <p>
-          给 55+ 长者和家人使用的脑健康自检与记忆训练工具。现在内置 {selfCheckSets.length} 套自检、{nBackSets.length + spacedRecallSets.length + dailyTaskSets.length} 套练习和 {guideCards.length} 条学习指南，只提供教育和记录，不给医学结论。
+          给 55+ 长者和家人使用的脑健康自检与记忆训练工具。现在内置 {selfCheckSets.length} 套自检、{nBackSets.length + spacedRecallSets.length + dailyTaskSets.length + choiceTrainingSetCount} 套练习和 {guideCards.length} 条学习指南，只提供教育和记录，不给医学结论。
         </p>
       </div>
 
@@ -241,7 +251,7 @@ function HomeView({
         <FeatureButton
           icon={<Brain />}
           title="记忆训练"
-          text="n-back、间隔回忆、日常计划三类练习，记录表现和变化。"
+          text="覆盖注意、回忆、分类、步骤、沟通、数字、路线、用药等多类练习。"
           onClick={() => go("training")}
         />
         <FeatureButton
@@ -387,6 +397,18 @@ function SelfCheckView({
     );
   };
 
+  const updateClockScore = (score: ClockAutoScore) => {
+    setClockChecklist((current) => ({
+      ...current,
+      hasCircle: score.hasCircle,
+      hasNumbers: score.hasNumbers,
+      hasHands: score.hasHands,
+      autoScore: score.confidence,
+      numberSectors: score.numberSectors,
+      handLines: score.handLines,
+    }));
+  };
+
   const finish = () => {
     const miniTaskCorrect = miniTaskChoices.filter((item) => currentMiniTask.helpfulChoices.includes(item)).length;
     const previousSession = readSelfChecks()[0] ?? null;
@@ -491,24 +513,16 @@ function SelfCheckView({
             <PenTool />
             <h2>画一个时钟</h2>
           </div>
-          <p>{currentSet.clockPrompt} 请画出圆形表盘、主要数字和指针。完成后勾选下面项目。</p>
-          <ClockPad />
-          <div className="choice-list two-col">
-            <ChecklistItem
-              label="有圆形表盘"
-              checked={clockChecklist.hasCircle}
-              onChange={(value) => setClockChecklist((current) => ({ ...current, hasCircle: value }))}
-            />
-            <ChecklistItem
-              label="有主要数字"
-              checked={clockChecklist.hasNumbers}
-              onChange={(value) => setClockChecklist((current) => ({ ...current, hasNumbers: value }))}
-            />
-            <ChecklistItem
-              label="有指针"
-              checked={clockChecklist.hasHands}
-              onChange={(value) => setClockChecklist((current) => ({ ...current, hasHands: value }))}
-            />
+          <p>{currentSet.clockPrompt} 请画出圆形表盘、主要数字和指针。系统会在本设备上自动识别，不上传图像。</p>
+          <ClockPad key={currentSet.id} onScoreChange={updateClockScore} />
+          <div className="auto-score-grid" aria-label="时钟自动识别结果">
+            <AutoScoreBadge label="表盘" active={clockChecklist.hasCircle} />
+            <AutoScoreBadge label="数字" active={clockChecklist.hasNumbers} detail={`${clockChecklist.numberSectors ?? 0} 个区域`} />
+            <AutoScoreBadge label="指针" active={clockChecklist.hasHands} detail={`${clockChecklist.handLines ?? 0} 根`} />
+            <AutoScoreBadge label="参考分" active={(clockChecklist.autoScore ?? 0) >= 67} detail={`${clockChecklist.autoScore ?? 0}%`} />
+          </div>
+          <p className="hint-text">自动识别只是练习参考。字写得轻、屏幕太小或手指挡住，都可能影响识别。</p>
+          <div className="choice-list">
             <ChecklistItem
               label="过程有点吃力"
               checked={clockChecklist.userFeltDifficult}
@@ -621,9 +635,26 @@ function SelfCheckView({
   );
 }
 
-function ClockPad() {
+function AutoScoreBadge({ label, active, detail }: { label: string; active: boolean; detail?: string }) {
+  return (
+    <div className={active ? "auto-score-badge active" : "auto-score-badge"}>
+      <strong>{label}</strong>
+      <span>{active ? "已识别" : "未识别"}{detail ? ` · ${detail}` : ""}</span>
+    </div>
+  );
+}
+
+function ClockPad({ onScoreChange }: { onScoreChange: (score: ClockAutoScore) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
+  const strokesRef = useRef<ClockStroke[]>([]);
+  const activeStrokeRef = useRef<ClockStroke | null>(null);
+
+  const updateScore = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    onScoreChange(scoreClockDrawing(strokesRef.current, canvas.width, canvas.height));
+  };
 
   const getPoint = (event: PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -641,8 +672,10 @@ function ClockPad() {
     if (!canvas || !point || !drawing.current) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    activeStrokeRef.current?.push({ ...point, t: Date.now() });
     ctx.lineTo(point.x, point.y);
     ctx.stroke();
+    updateScore();
   };
 
   const start = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -652,6 +685,8 @@ function ClockPad() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     drawing.current = true;
+    activeStrokeRef.current = [{ ...point, t: Date.now() }];
+    strokesRef.current = [...strokesRef.current, activeStrokeRef.current];
     canvas.setPointerCapture(event.pointerId);
     ctx.strokeStyle = "#1f2937";
     ctx.lineWidth = 4;
@@ -663,6 +698,8 @@ function ClockPad() {
 
   const stop = () => {
     drawing.current = false;
+    activeStrokeRef.current = null;
+    updateScore();
   };
 
   const clear = () => {
@@ -670,6 +707,9 @@ function ClockPad() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    strokesRef.current = [];
+    activeStrokeRef.current = null;
+    updateScore();
   };
 
   return (
@@ -709,26 +749,43 @@ function ChecklistItem({
   );
 }
 
+type TrainingMode = "nback" | "spaced" | "daily" | ChoiceTrainingKind;
+
+const coreTrainingOptions: Array<{ id: TrainingMode; title: string; shortTitle: string; description: string }> = [
+  { id: "nback", title: "n-back 工作记忆", shortTitle: "n-back", description: "判断当前字是否和前面相同。" },
+  { id: "spaced", title: "间隔回忆", shortTitle: "回忆", description: "先记住物品，再从相似项中找回。" },
+  { id: "daily", title: "日常计划", shortTitle: "计划", description: "从生活场景里选择更稳妥做法。" },
+  ...choiceTrainingModules.map((module) => ({
+    id: module.id,
+    title: module.title,
+    shortTitle: module.shortTitle,
+    description: module.description,
+  })),
+];
+
 function TrainingView({ onSaved, goHome }: { onSaved: () => void; goHome: () => void }) {
-  const [activeTab, setActiveTab] = useState<"nback" | "spaced" | "daily">("nback");
+  const [activeTab, setActiveTab] = useState<TrainingMode>("nback");
+  const activeChoiceModule = choiceTrainingModules.find((module) => module.id === activeTab);
 
   return (
     <section className="screen flow-screen">
-      <ScreenHeader title="记忆训练" subtitle="只记录练习表现，不代表医学评估。" goHome={goHome} />
-      <div className="segmented">
-        <button className={activeTab === "nback" ? "active" : ""} onClick={() => setActiveTab("nback")}>
-          n-back
-        </button>
-        <button className={activeTab === "spaced" ? "active" : ""} onClick={() => setActiveTab("spaced")}>
-          间隔回忆
-        </button>
-        <button className={activeTab === "daily" ? "active" : ""} onClick={() => setActiveTab("daily")}>
-          日常计划
-        </button>
+      <ScreenHeader title="记忆训练" subtitle="多类型练习，只记录表现和趋势，不代表医学评估。" goHome={goHome} />
+      <div className="training-mode-grid" aria-label="训练类型">
+        {coreTrainingOptions.map((option) => (
+          <button
+            key={option.id}
+            className={activeTab === option.id ? "active" : ""}
+            onClick={() => setActiveTab(option.id)}
+          >
+            <strong>{option.shortTitle}</strong>
+            <span>{option.description}</span>
+          </button>
+        ))}
       </div>
       {activeTab === "nback" && <NBackTrainer onSaved={onSaved} />}
       {activeTab === "spaced" && <SpacedRecallTrainer onSaved={onSaved} />}
       {activeTab === "daily" && <DailyTaskTrainer onSaved={onSaved} />}
+      {activeChoiceModule && <ChoiceTrainingModuleView module={activeChoiceModule} onSaved={onSaved} />}
     </section>
   );
 }
@@ -1048,6 +1105,120 @@ function DailyTaskTrainer({ onSaved }: { onSaved: () => void }) {
           </div>
           <div className="button-row">
             <button className="secondary-button" onClick={() => reset(rotateIndex(setIndex, dailyTaskSets.length))}>
+              <Shuffle size={20} />
+              换套练习
+            </button>
+            <button className="primary-button" onClick={() => reset()}>
+              <RotateCcw size={20} />
+              再练一轮
+            </button>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ChoiceTrainingModuleView({ module, onSaved }: { module: ChoiceTrainingModule; onSaved: () => void }) {
+  const [setIndex, setSetIndex] = useState(0);
+  const currentSet = module.sets[setIndex];
+  const [selected, setSelected] = useState<string[]>([]);
+  const [startedAt, setStartedAt] = useState(Date.now());
+  const [done, setDone] = useState(false);
+  const [trend, setTrend] = useState("");
+  const score = selected.filter((item) => currentSet.targets.includes(item)).length;
+  const falseAlarms = selected.filter((item) => !currentSet.targets.includes(item)).length;
+
+  const reset = (nextSetIndex = setIndex) => {
+    setSetIndex(nextSetIndex);
+    setSelected([]);
+    setStartedAt(Date.now());
+    setDone(false);
+    setTrend("");
+  };
+
+  const toggle = (item: string) => {
+    setSelected((current) => (current.includes(item) ? current.filter((value) => value !== item) : [...current, item]));
+  };
+
+  const finish = () => {
+    const accuracy = Math.round((score / currentSet.targets.length) * 100);
+    const session: TrainingSession = {
+      id: createId("train"),
+      kind: module.id,
+      setId: currentSet.id,
+      setTitle: `${module.title}｜${currentSet.title}`,
+      level: 1,
+      trials: currentSet.targets.length,
+      accuracy,
+      falseAlarms,
+      durationMs: Date.now() - startedAt,
+      createdAt: new Date().toISOString(),
+    };
+    const previous = readTrainingSessions().find((item) => item.kind === module.id) ?? null;
+    appendTrainingSession(session);
+    onSaved();
+    setTrend(getTrainingTrendCopy(session, previous));
+    setDone(true);
+  };
+
+  return (
+    <Panel>
+      <SetToolbar
+        label={`选择${module.title}套题`}
+        sets={module.sets}
+        selectedIndex={setIndex}
+        onSelect={reset}
+        onNext={() => reset(rotateIndex(setIndex, module.sets.length))}
+      />
+      {!done ? (
+        <>
+          <div className="set-meta">
+            第 {setIndex + 1} / {module.sets.length} 套 · {currentSet.title}
+          </div>
+          <h2>{module.title}</h2>
+          <p>{module.instruction}</p>
+          <p>{currentSet.prompt}</p>
+          <p className="hint-text">请选择 3 项。干扰项有些也像是对的，慢慢比对比一次点完更好。</p>
+          <div className="choice-list">
+            {currentSet.choices.map((item) => (
+              <ChecklistItem key={item} label={item} checked={selected.includes(item)} onChange={() => toggle(item)} />
+            ))}
+          </div>
+          <button className="primary-button" onClick={finish}>
+            完成练习
+          </button>
+        </>
+      ) : (
+        <div className="result-stack">
+          <div className="result-badge">
+            <CheckCircle2 />
+            本轮完成
+          </div>
+          <p>
+            类型：{module.title}；套题：{currentSet.title}；选中目标 {score} / {currentSet.targets.length} 项；误点 {falseAlarms} 次。
+          </p>
+          <div className="feedback-box">
+            <strong>这次变化</strong>
+            <p>{trend}</p>
+          </div>
+          <div className="advice-list">
+            <strong>本轮更稳妥的 3 项</strong>
+            <ul>
+              {currentSet.targets.map((target) => (
+                <li key={target}>{target}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="advice-list">
+            <strong>练习提示</strong>
+            <ul>
+              <li>{currentSet.tip}</li>
+              <li>这只是练习表现，不用把一次得分看得太重。</li>
+            </ul>
+          </div>
+          <div className="button-row">
+            <button className="secondary-button" onClick={() => reset(rotateIndex(setIndex, module.sets.length))}>
               <Shuffle size={20} />
               换套练习
             </button>

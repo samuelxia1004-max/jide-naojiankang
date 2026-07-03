@@ -11,6 +11,7 @@ export type ExportBundle = {
     participantAlias: string;
     recallCount: number;
     clockItems: number;
+    clockAutoScore: number;
     observationCount: number;
     miniTaskCorrect: number;
     miniTaskTotal: number;
@@ -50,6 +51,7 @@ export function buildExportBundle(
         session.clockChecklist.hasNumbers,
         session.clockChecklist.hasHands,
       ].filter(Boolean).length,
+      clockAutoScore: session.clockChecklist.autoScore ?? 0,
       observationCount: session.observationFlags.length,
       miniTaskCorrect: session.miniTaskCorrect ?? 0,
       miniTaskTotal: session.miniTaskTotal ?? 0,
@@ -84,6 +86,7 @@ export function toCsv(bundle: ExportBundle) {
       "metricC",
       "metricD",
       "metricE",
+      "metricF",
     ],
     ...bundle.selfChecks.map((item) => [
       "self-check",
@@ -94,6 +97,7 @@ export function toCsv(bundle: ExportBundle) {
       item.setTitle,
       `recall:${item.recallCount}`,
       `clock:${item.clockItems}`,
+      `clockAuto:${item.clockAutoScore}`,
       `observations:${item.observationCount}`,
       `miniTask:${item.miniTaskCorrect}/${item.miniTaskTotal}`,
       item.resultBand,
@@ -109,6 +113,8 @@ export function toCsv(bundle: ExportBundle) {
       `level:${item.level}`,
       `accuracy:${item.accuracy}`,
       `falseAlarms:${item.falseAlarms}`,
+      `trials:${item.trials}`,
+      `durationMs:${item.durationMs}`,
     ]),
   ];
 

@@ -16,6 +16,9 @@ export type ClockChecklist = {
   hasNumbers: boolean;
   hasHands: boolean;
   userFeltDifficult: boolean;
+  autoScore?: number;
+  numberSectors?: number;
+  handLines?: number;
 };
 
 export type SelfCheckSession = {
@@ -36,7 +39,7 @@ export type SelfCheckSession = {
 
 export type TrainingSession = {
   id: string;
-  kind: "nback" | "spacedRecall" | "dailyTask";
+  kind: string;
   setId?: string;
   setTitle?: string;
   level: number;
