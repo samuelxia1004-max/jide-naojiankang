@@ -15,10 +15,13 @@ export type ClockChecklist = {
   hasCircle: boolean;
   hasNumbers: boolean;
   hasHands: boolean;
+  hasTimeMatch?: boolean;
   userFeltDifficult: boolean;
   autoScore?: number;
   numberSectors?: number;
   handLines?: number;
+  timeScore?: number;
+  targetTime?: string;
 };
 
 export type SelfCheckSession = {
@@ -30,10 +33,17 @@ export type SelfCheckSession = {
   miniTaskTitle?: string;
   participantAlias?: string;
   recallCount: number;
+  recallFalseAlarms?: number;
   clockChecklist: ClockChecklist;
   observationFlags: string[];
+  challengeId?: string;
+  challengeTitle?: string;
+  challengeCorrect?: number;
+  challengeTotal?: number;
+  challengeFalseAlarms?: number;
   miniTaskCorrect?: number;
   miniTaskTotal?: number;
+  miniTaskFalseAlarms?: number;
   resultBand: "completed" | "doctor_discussion_suggested";
 };
 

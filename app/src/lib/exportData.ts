@@ -10,11 +10,17 @@ export type ExportBundle = {
     setTitle: string;
     participantAlias: string;
     recallCount: number;
+    recallFalseAlarms: number;
     clockItems: number;
     clockAutoScore: number;
+    clockTimeScore: number;
     observationCount: number;
+    challengeCorrect: number;
+    challengeTotal: number;
+    challengeFalseAlarms: number;
     miniTaskCorrect: number;
     miniTaskTotal: number;
+    miniTaskFalseAlarms: number;
     resultBand: SelfCheckSession["resultBand"];
   }>;
   training: Array<{
@@ -46,15 +52,21 @@ export function buildExportBundle(
       setTitle: session.setTitle ?? "",
       participantAlias: session.participantAlias ?? "single-user",
       recallCount: session.recallCount,
+      recallFalseAlarms: session.recallFalseAlarms ?? 0,
       clockItems: [
         session.clockChecklist.hasCircle,
         session.clockChecklist.hasNumbers,
         session.clockChecklist.hasHands,
       ].filter(Boolean).length,
       clockAutoScore: session.clockChecklist.autoScore ?? 0,
+      clockTimeScore: session.clockChecklist.timeScore ?? 0,
       observationCount: session.observationFlags.length,
+      challengeCorrect: session.challengeCorrect ?? 0,
+      challengeTotal: session.challengeTotal ?? 0,
+      challengeFalseAlarms: session.challengeFalseAlarms ?? 0,
       miniTaskCorrect: session.miniTaskCorrect ?? 0,
       miniTaskTotal: session.miniTaskTotal ?? 0,
+      miniTaskFalseAlarms: session.miniTaskFalseAlarms ?? 0,
       resultBand: session.resultBand,
     })),
     training: training.map((session) => ({
@@ -87,6 +99,11 @@ export function toCsv(bundle: ExportBundle) {
       "metricD",
       "metricE",
       "metricF",
+      "metricG",
+      "metricH",
+      "metricI",
+      "metricJ",
+      "metricK",
     ],
     ...bundle.selfChecks.map((item) => [
       "self-check",
@@ -96,10 +113,15 @@ export function toCsv(bundle: ExportBundle) {
       item.setId,
       item.setTitle,
       `recall:${item.recallCount}`,
+      `recallFalse:${item.recallFalseAlarms}`,
       `clock:${item.clockItems}`,
       `clockAuto:${item.clockAutoScore}`,
-      `observations:${item.observationCount}`,
+      `clockTime:${item.clockTimeScore}`,
+      `challenge:${item.challengeCorrect}/${item.challengeTotal}`,
+      `challengeFalse:${item.challengeFalseAlarms}`,
       `miniTask:${item.miniTaskCorrect}/${item.miniTaskTotal}`,
+      `miniTaskFalse:${item.miniTaskFalseAlarms}`,
+      `observations:${item.observationCount}`,
       item.resultBand,
     ]),
     ...bundle.training.map((item) => [

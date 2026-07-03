@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSafeResultCopy,
   getSelfCheckSuggestions,
+  getSelfCheckDetailItems,
   getSelfCheckTrendCopy,
   getResultBand,
   getResultCopy,
@@ -47,6 +48,40 @@ describe("self-check result wording", () => {
       observationFlags: ["需要更多提醒"],
     };
     const text = [getSelfCheckTrendCopy(current, previous), ...getSelfCheckSuggestions(current)].join("");
+    expect(assertSafeResultCopy(text)).toBe(true);
+  });
+
+  it("keeps detailed feedback concrete but non-diagnostic", () => {
+    const current = {
+      id: "self-detail",
+      createdAt: "2026-07-02T00:00:00.000Z",
+      recallCount: 1,
+      recallFalseAlarms: 1,
+      clockChecklist: {
+        hasCircle: true,
+        hasNumbers: true,
+        hasHands: true,
+        hasTimeMatch: false,
+        userFeltDifficult: false,
+        autoScore: 75,
+        timeScore: 33,
+      },
+      observationFlags: ["需要更多提醒"],
+      challengeCorrect: 1,
+      challengeTotal: 3,
+      challengeFalseAlarms: 1,
+      miniTaskCorrect: 2,
+      miniTaskTotal: 3,
+      miniTaskFalseAlarms: 0,
+      resultBand: "doctor_discussion_suggested" as const,
+    };
+
+    const text = [...getSelfCheckDetailItems(current), ...getSelfCheckSuggestions(current)]
+      .map((item) => (typeof item === "string" ? item : `${item.title}${item.status}${item.detail}${item.advice}`))
+      .join("");
+
+    expect(text).toContain("指向时间");
+    expect(text).toContain("信息理解");
     expect(assertSafeResultCopy(text)).toBe(true);
   });
 });

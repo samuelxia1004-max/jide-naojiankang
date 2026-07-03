@@ -6,14 +6,16 @@ export function getResultBand(
   recallCount: number,
   clockChecklist: ClockChecklist,
   observationFlags: string[],
+  extraSignals = 0,
 ): SelfCheckSession["resultBand"] {
   const clockSupportNeeded =
     !clockChecklist.hasCircle ||
     !clockChecklist.hasNumbers ||
     !clockChecklist.hasHands ||
+    clockChecklist.hasTimeMatch === false ||
     clockChecklist.userFeltDifficult;
 
-  if (recallCount <= 1 || clockSupportNeeded || observationFlags.length >= 2) {
+  if (recallCount <= 1 || clockSupportNeeded || observationFlags.length >= 2 || extraSignals >= 3) {
     return "doctor_discussion_suggested";
   }
 
@@ -44,8 +46,84 @@ export function getSelfCheckSupportSignals(session: SelfCheckSession) {
     typeof session.miniTaskCorrect === "number" && typeof session.miniTaskTotal === "number"
       ? Math.max(0, session.miniTaskTotal - session.miniTaskCorrect)
       : 0;
+  const challengeSignals =
+    typeof session.challengeCorrect === "number" && typeof session.challengeTotal === "number"
+      ? Math.max(0, session.challengeTotal - session.challengeCorrect)
+      : 0;
+  const falseAlarmSignals =
+    (session.recallFalseAlarms ?? 0) + (session.challengeFalseAlarms ?? 0) + (session.miniTaskFalseAlarms ?? 0);
+  const timeSignal = session.clockChecklist.hasTimeMatch === false ? 1 : 0;
 
-  return recallSignals + clockMissing + clockEffort + session.observationFlags.length + miniTaskSignals;
+  return (
+    recallSignals +
+    clockMissing +
+    clockEffort +
+    timeSignal +
+    session.observationFlags.length +
+    miniTaskSignals +
+    challengeSignals +
+    falseAlarmSignals
+  );
+}
+
+export function getSelfCheckDetailItems(session: SelfCheckSession) {
+  const recallFalseAlarms = session.recallFalseAlarms ?? 0;
+  const challengeCorrect = session.challengeCorrect ?? 0;
+  const challengeTotal = session.challengeTotal ?? 0;
+  const challengeFalseAlarms = session.challengeFalseAlarms ?? 0;
+  const miniTaskCorrect = session.miniTaskCorrect ?? 0;
+  const miniTaskTotal = session.miniTaskTotal ?? 0;
+  const miniTaskFalseAlarms = session.miniTaskFalseAlarms ?? 0;
+  const clockItems = getClockItemCount(session.clockChecklist);
+  const clockTimeMatched = session.clockChecklist.hasTimeMatch;
+
+  return [
+    {
+      title: "词语回忆",
+      status: `${session.recallCount} / 3，误选 ${recallFalseAlarms} 项`,
+      detail:
+        session.recallCount >= 2 && recallFalseAlarms === 0
+          ? "这一步完成较顺。"
+          : "这一步显示回忆或分辨相似词时比较吃力。",
+      advice: "下次尽量在安静环境中做；如果多次都难以回忆近事，可把具体例子带给医生。",
+    },
+    {
+      title: "时钟绘制",
+      status: `${clockItems} / 3 项，指向时间${clockTimeMatched ? "大致匹配" : "未稳定匹配"}`,
+      detail:
+        clockItems === 3 && clockTimeMatched
+          ? "表盘、数字、指针和题目时间大致能被识别。"
+          : "时钟结构或指针方向有一部分没有稳定识别。",
+      advice: "如果多次画钟都明显吃力，尤其是数字位置或指针时间反复困难，建议记录下来和医生讨论。",
+    },
+    {
+      title: "信息理解",
+      status: `${challengeCorrect} / ${challengeTotal}，误选 ${challengeFalseAlarms} 项`,
+      detail:
+        challengeTotal > 0 && challengeCorrect >= 2 && challengeFalseAlarms <= 1
+          ? "能从生活信息里抓到部分关键点。"
+          : "从通知、留言或安排中提取重点时可能比较费力。",
+      advice: "真实生活中可把通知拆成时间、地点、要带物品三栏，减少临时记忆压力。",
+    },
+    {
+      title: "生活判断",
+      status: `${miniTaskCorrect} / ${miniTaskTotal}，误选 ${miniTaskFalseAlarms} 项`,
+      detail:
+        miniTaskTotal > 0 && miniTaskCorrect >= 2 && miniTaskFalseAlarms <= 1
+          ? "能选到一些更稳妥的生活支持做法。"
+          : "遇到安全、用药、缴费或沟通场景时，可能需要更清楚的外部支持。",
+      advice: "可先从药盒、清单、固定物品位置和大额付款前核对这些小措施开始。",
+    },
+    {
+      title: "日常观察",
+      status: `勾选 ${session.observationFlags.length} 项`,
+      detail:
+        session.observationFlags.length === 0
+          ? "这次没有勾选明显日常变化。"
+          : "家人已经观察到一些生活场景中的变化。",
+      advice: "把勾选项写成具体例子：何时发生、持续多久、是否影响用药出门做饭或付款。",
+    },
+  ];
 }
 
 export function getSelfCheckTrendCopy(current: SelfCheckSession, previous?: SelfCheckSession | null) {
@@ -81,6 +159,18 @@ export function getSelfCheckSuggestions(session: SelfCheckSession) {
 
   if (session.observationFlags.length > 0) {
     suggestions.push("把勾选到的日常变化写成具体例子，例如发生时间、地点、持续多久、是否需要家人帮助。");
+  }
+
+  if ((session.recallFalseAlarms ?? 0) > 0) {
+    suggestions.push("回忆题中若常选到相似但不是目标的词，日常可减少干扰信息，一次只给一个清楚提示。");
+  }
+
+  if (session.clockChecklist.hasTimeMatch === false) {
+    suggestions.push("时钟指针若多次不容易指到题目时间，可在纸上练习先标 12、3、6、9，再画长短指针。");
+  }
+
+  if ((session.challengeFalseAlarms ?? 0) > 0 || (session.miniTaskFalseAlarms ?? 0) > 0) {
+    suggestions.push("信息理解或生活判断若容易被相似选项带偏，可把重要事项写成“时间、地点、下一步”三栏。");
   }
 
   return suggestions;

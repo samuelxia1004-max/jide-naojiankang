@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { dailyTaskSets, guideCards, nBackSets, selfCheckMiniTasks, selfCheckSets, spacedRecallSets } from "./contentBanks";
+import {
+  dailyTaskSets,
+  guideCards,
+  nBackSets,
+  selfCheckChallengeSets,
+  selfCheckMiniTasks,
+  selfCheckSets,
+  spacedRecallSets,
+} from "./contentBanks";
 import { choiceTrainingModules, choiceTrainingSetCount } from "./expandedTraining";
 
 describe("content banks", () => {
@@ -9,6 +17,7 @@ describe("content banks", () => {
     expect(spacedRecallSets.length).toBeGreaterThanOrEqual(20);
     expect(dailyTaskSets.length).toBeGreaterThanOrEqual(20);
     expect(selfCheckMiniTasks.length).toBeGreaterThanOrEqual(20);
+    expect(selfCheckChallengeSets.length).toBeGreaterThanOrEqual(20);
     expect(guideCards.length).toBeGreaterThanOrEqual(20);
     expect(choiceTrainingModules.length).toBeGreaterThanOrEqual(8);
     expect(choiceTrainingSetCount).toBeGreaterThanOrEqual(160);
@@ -51,10 +60,24 @@ describe("content banks", () => {
 
   it("keeps mini tasks complete", () => {
     for (const task of selfCheckMiniTasks) {
-      expect(task.choices.length).toBeGreaterThanOrEqual(5);
+      expect(task.choices.length).toBeGreaterThanOrEqual(8);
+      expect(new Set(task.choices).size).toBe(task.choices.length);
+      expect(task.choices.every((choice) => choice.trim().length > 0)).toBe(true);
       expect(task.helpfulChoices).toHaveLength(3);
       for (const helpfulChoice of task.helpfulChoices) {
         expect(task.choices).toContain(helpfulChoice);
+      }
+    }
+  });
+
+  it("keeps self-check challenge sets difficult enough", () => {
+    for (const set of selfCheckChallengeSets) {
+      expect(set.targets).toHaveLength(3);
+      expect(set.choices.length).toBeGreaterThanOrEqual(8);
+      expect(new Set(set.choices).size).toBe(set.choices.length);
+      expect(set.choices.every((choice) => choice.trim().length > 0)).toBe(true);
+      for (const target of set.targets) {
+        expect(set.choices).toContain(target);
       }
     }
   });

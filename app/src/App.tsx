@@ -17,7 +17,15 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
-import { dailyTaskSets, guideCards, nBackSets, selfCheckMiniTasks, selfCheckSets, spacedRecallSets } from "./contentBanks";
+import {
+  dailyTaskSets,
+  guideCards,
+  nBackSets,
+  selfCheckChallengeSets,
+  selfCheckMiniTasks,
+  selfCheckSets,
+  spacedRecallSets,
+} from "./contentBanks";
 import {
   choiceTrainingModules,
   choiceTrainingSetCount,
@@ -26,7 +34,7 @@ import {
 } from "./expandedTraining";
 import { buildExportBundle, toCsv } from "./lib/exportData";
 import { createId, createParticipantAlias } from "./lib/ids";
-import { scoreClockDrawing, type ClockAutoScore, type ClockStroke } from "./lib/clockScoring";
+import { scoreClockDrawing, type ClockAutoScore, type ClockStroke, type ClockTargetTime } from "./lib/clockScoring";
 import {
   buildNBackSequence,
   isExpectedMatch,
@@ -34,7 +42,13 @@ import {
   summarizeNBack,
   type NBackResponse,
 } from "./lib/nback";
-import { getResultBand, getResultCopy, getSelfCheckSuggestions, getSelfCheckTrendCopy } from "./lib/selfCheck";
+import {
+  getResultBand,
+  getResultCopy,
+  getSelfCheckDetailItems,
+  getSelfCheckSuggestions,
+  getSelfCheckTrendCopy,
+} from "./lib/selfCheck";
 import {
   appendSelfCheck,
   appendTrainingSession,
@@ -50,9 +64,9 @@ import {
 import type { ClockChecklist, PilotParticipant, SelfCheckSession, TrainingSession } from "./types";
 
 type View = "home" | "self-check" | "training" | "guide" | "pilot";
-type SelfCheckStep = "consent" | "words" | "recall" | "clock" | "questions" | "scenario" | "result";
+type SelfCheckStep = "consent" | "words" | "recall" | "clock" | "challenge" | "questions" | "scenario" | "result";
 
-const selfCheckSteps: SelfCheckStep[] = ["consent", "words", "recall", "clock", "questions", "scenario", "result"];
+const selfCheckSteps: SelfCheckStep[] = ["consent", "words", "recall", "clock", "challenge", "questions", "scenario", "result"];
 
 function refreshData() {
   return {
@@ -67,10 +81,12 @@ function emptyClockChecklist(): ClockChecklist {
     hasCircle: false,
     hasNumbers: false,
     hasHands: false,
+    hasTimeMatch: false,
     userFeltDifficult: false,
     autoScore: 0,
     numberSectors: 0,
     handLines: 0,
+    timeScore: 0,
   };
 }
 
@@ -81,6 +97,66 @@ function rotateIndex(current: number, total: number) {
 function buildSequenceFor(setIndex: number, level: number) {
   const currentSet = nBackSets[setIndex];
   return buildNBackSequence(level, currentSet.length, currentSet.stimuli);
+}
+
+const recallLures = [
+  "梅花",
+  "火锅",
+  "蓝天",
+  "白布",
+  "钥匙圈",
+  "茶壶",
+  "公路",
+  "雨衣",
+  "豆腐",
+  "汤圆",
+  "窗台",
+  "邮局",
+  "面条",
+  "红旗",
+  "车站",
+  "米粥",
+  "报表",
+  "灯泡",
+  "花生",
+  "信纸",
+  "药单",
+  "石头",
+  "梨花",
+  "竹椅",
+  "饼盒",
+  "绿灯",
+  "皮包",
+  "白纸",
+  "长桌",
+  "黄灯",
+];
+
+function buildRecallChoices(words: [string, string, string], setIndex: number) {
+  const choices = [words[0]];
+  let offset = 0;
+  while (choices.length < 8) {
+    if (choices.length === 3) choices.push(words[1]);
+    if (choices.length === 6) choices.push(words[2]);
+    const lure = recallLures[(setIndex * 4 + offset) % recallLures.length];
+    if (!words.includes(lure) && !choices.includes(lure)) choices.push(lure);
+    offset += 1;
+  }
+  return choices.slice(0, 8);
+}
+
+function parseClockTarget(prompt: string): ClockTargetTime | undefined {
+  const match = prompt.match(/(\d{1,2})\s*点\s*(\d{1,2})\s*分/);
+  if (!match) return undefined;
+  return {
+    hour: Number(match[1]),
+    minute: Number(match[2]),
+  };
+}
+
+function formatClockTarget(target?: ClockTargetTime) {
+  if (!target) return "";
+  return `${target.hour}:${String(target.minute).padStart(2, "0")}`;
 }
 
 function getTrainingTrendCopy(current: TrainingSession, previous?: TrainingSession | null) {
@@ -354,10 +430,14 @@ function SelfCheckView({
   const [setIndex, setSetIndex] = useState(0);
   const currentSet = selfCheckSets[setIndex];
   const currentMiniTask = selfCheckMiniTasks[setIndex % selfCheckMiniTasks.length];
+  const currentChallenge = selfCheckChallengeSets[setIndex % selfCheckChallengeSets.length];
+  const currentClockTarget = parseClockTarget(currentSet.clockPrompt);
+  const currentRecallChoices = buildRecallChoices(currentSet.words, setIndex);
   const [step, setStep] = useState<SelfCheckStep>(() => (readConsent() ? "words" : "consent"));
   const [participantAlias, setParticipantAlias] = useState(participants[0]?.alias ?? "");
   const [rememberedWords, setRememberedWords] = useState<string[]>([]);
   const [clockChecklist, setClockChecklist] = useState<ClockChecklist>(emptyClockChecklist);
+  const [challengeChoices, setChallengeChoices] = useState<string[]>([]);
   const [observationFlags, setObservationFlags] = useState<string[]>([]);
   const [miniTaskChoices, setMiniTaskChoices] = useState<string[]>([]);
   const [result, setResult] = useState<SelfCheckSession | null>(null);
@@ -367,6 +447,7 @@ function SelfCheckView({
     setSetIndex(nextIndex);
     setRememberedWords([]);
     setClockChecklist(emptyClockChecklist());
+    setChallengeChoices([]);
     setObservationFlags([]);
     setMiniTaskChoices([]);
     setResult(null);
@@ -391,6 +472,12 @@ function SelfCheckView({
     );
   };
 
+  const toggleChallengeChoice = (item: string) => {
+    setChallengeChoices((current) =>
+      current.includes(item) ? current.filter((value) => value !== item) : [...current, item],
+    );
+  };
+
   const toggleMiniTaskChoice = (item: string) => {
     setMiniTaskChoices((current) =>
       current.includes(item) ? current.filter((value) => value !== item) : [...current, item],
@@ -403,16 +490,29 @@ function SelfCheckView({
       hasCircle: score.hasCircle,
       hasNumbers: score.hasNumbers,
       hasHands: score.hasHands,
+      hasTimeMatch: score.hasTimeMatch,
       autoScore: score.confidence,
       numberSectors: score.numberSectors,
       handLines: score.handLines,
+      timeScore: score.timeScore,
+      targetTime: formatClockTarget(currentClockTarget),
     }));
   };
 
   const finish = () => {
+    const recallFalseAlarms = rememberedWords.filter((item) => !currentSet.words.includes(item)).length;
+    const challengeCorrect = challengeChoices.filter((item) => currentChallenge.targets.includes(item)).length;
+    const challengeFalseAlarms = challengeChoices.filter((item) => !currentChallenge.targets.includes(item)).length;
     const miniTaskCorrect = miniTaskChoices.filter((item) => currentMiniTask.helpfulChoices.includes(item)).length;
+    const miniTaskFalseAlarms = miniTaskChoices.filter((item) => !currentMiniTask.helpfulChoices.includes(item)).length;
     const previousSession = readSelfChecks()[0] ?? null;
-    const resultBand = getResultBand(rememberedWords.length, clockChecklist, observationFlags);
+    const extraSignals =
+      recallFalseAlarms +
+      Math.max(0, currentChallenge.targets.length - challengeCorrect) +
+      challengeFalseAlarms +
+      Math.max(0, currentMiniTask.helpfulChoices.length - miniTaskCorrect) +
+      miniTaskFalseAlarms;
+    const resultBand = getResultBand(rememberedWords.length, clockChecklist, observationFlags, extraSignals);
     const session: SelfCheckSession = {
       id: createId("self"),
       createdAt: new Date().toISOString(),
@@ -422,10 +522,17 @@ function SelfCheckView({
       miniTaskTitle: currentMiniTask.title,
       participantAlias: facilitatorMode ? participantAlias || undefined : undefined,
       recallCount: rememberedWords.length,
+      recallFalseAlarms,
       clockChecklist,
       observationFlags,
+      challengeId: currentChallenge.id,
+      challengeTitle: currentChallenge.title,
+      challengeCorrect,
+      challengeTotal: currentChallenge.targets.length,
+      challengeFalseAlarms,
       miniTaskCorrect,
       miniTaskTotal: currentMiniTask.helpfulChoices.length,
+      miniTaskFalseAlarms,
       resultBand,
     };
     appendSelfCheck(session);
@@ -492,9 +599,9 @@ function SelfCheckView({
             <ClipboardCheck />
             <h2>回忆刚才的词</h2>
           </div>
-          <p>不用紧张。请点选你记得的词。</p>
-          <div className="choice-list">
-            {currentSet.words.map((word) => (
+          <p>刚才的 3 个词藏在下面 8 个词里。请点选你记得的词，遇到像但不确定的词可以先慢一点。</p>
+          <div className="choice-list two-col">
+            {currentRecallChoices.map((word) => (
               <label key={word} className="large-check">
                 <input type="checkbox" checked={rememberedWords.includes(word)} onChange={() => toggleWord(word)} />
                 <span>{word}</span>
@@ -514,11 +621,12 @@ function SelfCheckView({
             <h2>画一个时钟</h2>
           </div>
           <p>{currentSet.clockPrompt} 请画出圆形表盘、主要数字和指针。系统会在本设备上自动识别，不上传图像。</p>
-          <ClockPad key={currentSet.id} onScoreChange={updateClockScore} />
+          <ClockPad key={currentSet.id} targetTime={currentClockTarget} onScoreChange={updateClockScore} />
           <div className="auto-score-grid" aria-label="时钟自动识别结果">
             <AutoScoreBadge label="表盘" active={clockChecklist.hasCircle} />
             <AutoScoreBadge label="数字" active={clockChecklist.hasNumbers} detail={`${clockChecklist.numberSectors ?? 0} 个区域`} />
             <AutoScoreBadge label="指针" active={clockChecklist.hasHands} detail={`${clockChecklist.handLines ?? 0} 根`} />
+            <AutoScoreBadge label="指向时间" active={Boolean(clockChecklist.hasTimeMatch)} detail={`${clockChecklist.timeScore ?? 0}%`} />
             <AutoScoreBadge label="参考分" active={(clockChecklist.autoScore ?? 0) >= 67} detail={`${clockChecklist.autoScore ?? 0}%`} />
           </div>
           <p className="hint-text">自动识别只是练习参考。字写得轻、屏幕太小或手指挡住，都可能影响识别。</p>
@@ -528,6 +636,33 @@ function SelfCheckView({
               checked={clockChecklist.userFeltDifficult}
               onChange={(value) => setClockChecklist((current) => ({ ...current, userFeltDifficult: value }))}
             />
+          </div>
+          <button className="primary-button" onClick={() => setStep("challenge")}>
+            下一步
+          </button>
+        </Panel>
+      )}
+
+      {step === "challenge" && (
+        <Panel>
+          <div className="set-meta">
+            信息理解 · {currentChallenge.title}
+          </div>
+          <div className="panel-heading">
+            <ClipboardCheck />
+            <h2>从一段信息里抓重点</h2>
+          </div>
+          <p>{currentChallenge.prompt}</p>
+          <p className="hint-text">请选择 3 项。干扰项会和生活场景有关，但不一定是这段信息里的关键点。</p>
+          <div className="choice-list">
+            {currentChallenge.choices.map((item) => (
+              <ChecklistItem
+                key={item}
+                label={item}
+                checked={challengeChoices.includes(item)}
+                onChange={() => toggleChallengeChoice(item)}
+              />
+            ))}
           </div>
           <button className="primary-button" onClick={() => setStep("questions")}>
             下一步
@@ -606,8 +741,18 @@ function SelfCheckView({
           </div>
           <h2>这次记录已保存在本设备</h2>
           <p>
-            本次套题：{result.setTitle}；词语回忆 {result.recallCount} / 3；日常观察勾选 {result.observationFlags.length} 项；生活小任务 {result.miniTaskCorrect ?? 0} / {result.miniTaskTotal ?? 0} 项。
+            本次套题：{result.setTitle}；词语回忆 {result.recallCount} / 3；时钟参考分 {result.clockChecklist.autoScore ?? 0}%；信息理解 {result.challengeCorrect ?? 0} / {result.challengeTotal ?? 0}；生活判断 {result.miniTaskCorrect ?? 0} / {result.miniTaskTotal ?? 0}。
           </p>
+          <div className="result-detail-grid">
+            {getSelfCheckDetailItems(result).map((item) => (
+              <article className="result-detail" key={item.title}>
+                <strong>{item.title}</strong>
+                <span>{item.status}</span>
+                <p>{item.detail}</p>
+                <small>{item.advice}</small>
+              </article>
+            ))}
+          </div>
           <div className="feedback-box">
             <strong>这次变化</strong>
             <p>{selfCheckTrend}</p>
@@ -644,7 +789,13 @@ function AutoScoreBadge({ label, active, detail }: { label: string; active: bool
   );
 }
 
-function ClockPad({ onScoreChange }: { onScoreChange: (score: ClockAutoScore) => void }) {
+function ClockPad({
+  targetTime,
+  onScoreChange,
+}: {
+  targetTime?: ClockTargetTime;
+  onScoreChange: (score: ClockAutoScore) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const strokesRef = useRef<ClockStroke[]>([]);
@@ -653,7 +804,7 @@ function ClockPad({ onScoreChange }: { onScoreChange: (score: ClockAutoScore) =>
   const updateScore = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    onScoreChange(scoreClockDrawing(strokesRef.current, canvas.width, canvas.height));
+    onScoreChange(scoreClockDrawing(strokesRef.current, canvas.width, canvas.height, targetTime));
   };
 
   const getPoint = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -752,7 +903,7 @@ function ChecklistItem({
 type TrainingMode = "nback" | "spaced" | "daily" | ChoiceTrainingKind;
 
 const coreTrainingOptions: Array<{ id: TrainingMode; title: string; shortTitle: string; description: string }> = [
-  { id: "nback", title: "n-back 工作记忆", shortTitle: "n-back", description: "判断当前字是否和前面相同。" },
+  { id: "nback", title: "前后对照", shortTitle: "前后", description: "看当前字和前面第几个字是否一样。" },
   { id: "spaced", title: "间隔回忆", shortTitle: "回忆", description: "先记住物品，再从相似项中找回。" },
   { id: "daily", title: "日常计划", shortTitle: "计划", description: "从生活场景里选择更稳妥做法。" },
   ...choiceTrainingModules.map((module) => ({
@@ -846,7 +997,7 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
   return (
     <Panel>
       <SetToolbar
-        label="选择 n-back 套题"
+        label="选择前后对照套题"
         sets={nBackSets}
         selectedIndex={setIndex}
         onSelect={(nextIndex) => reset(level, nextIndex)}
@@ -854,7 +1005,7 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
       />
       <div className="training-topline">
         <span>
-          {level}-back · {currentSet.title}
+          看前 {level} 步 · {currentSet.title}
         </span>
         <span>
           {summary ? sequence.length : trialIndex + 1} / {sequence.length}
@@ -866,7 +1017,7 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
       {!summary ? (
         <>
           <p className="hint-text">
-            如果当前字和 {level} 步前相同，请点“相同”；如果不同，请点“不同”。
+            如果当前字和前面第 {level} 个字相同，请点“相同”；如果不同，请点“不同”。
           </p>
           <div className="button-row">
             <button className="secondary-button" onClick={() => answer(false)}>
@@ -886,7 +1037,7 @@ function NBackTrainer({ onSaved }: { onSaved: () => void }) {
             <strong>这次变化</strong>
             <p>{trend}</p>
           </div>
-          <p>下一轮建议从 {level}-back 开始。</p>
+          <p>下一轮建议继续从“看前 {level} 步”开始。</p>
           <div className="button-row">
             <button className="secondary-button" onClick={() => reset(level, rotateIndex(setIndex, nBackSets.length))}>
               <Shuffle size={20} />

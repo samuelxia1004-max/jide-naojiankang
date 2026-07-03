@@ -33,15 +33,34 @@ describe("clock drawing auto scoring", () => {
       digitLikeStroke(460, 210),
       digitLikeStroke(320, 350),
       digitLikeStroke(180, 210),
-      lineStroke(320, 210, 320, 110),
-      lineStroke(320, 210, 420, 255),
+      lineStroke(320, 210, 320, 95),
+      lineStroke(320, 210, 420, 260),
     ];
 
-    const score = scoreClockDrawing(strokes, 640, 420);
+    const score = scoreClockDrawing(strokes, 640, 420, { hour: 4, minute: 0 });
     expect(score.hasCircle).toBe(true);
     expect(score.hasNumbers).toBe(true);
     expect(score.hasHands).toBe(true);
+    expect(score.hasTimeMatch).toBe(true);
     expect(score.confidence).toBe(100);
+  });
+
+  it("checks whether hand direction matches the requested time", () => {
+    const strokes: ClockStroke[] = [
+      circleStroke(320, 210, 150),
+      digitLikeStroke(320, 70),
+      digitLikeStroke(460, 210),
+      digitLikeStroke(320, 350),
+      digitLikeStroke(180, 210),
+      lineStroke(320, 210, 320, 95),
+      lineStroke(320, 210, 420, 260),
+    ];
+
+    const score = scoreClockDrawing(strokes, 640, 420, { hour: 8, minute: 20 });
+    expect(score.hasCircle).toBe(true);
+    expect(score.hasHands).toBe(true);
+    expect(score.hasTimeMatch).toBe(false);
+    expect(score.timeScore).toBeLessThan(67);
   });
 
   it("does not over-score a few short marks", () => {

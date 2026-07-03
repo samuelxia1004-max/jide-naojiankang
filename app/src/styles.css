@@ -675,6 +675,41 @@ select:focus-visible {
   background: #fffaf0;
 }
 
+.result-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.result-detail {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.result-detail strong,
+.result-detail span,
+.result-detail small {
+  display: block;
+}
+
+.result-detail span {
+  margin-top: 4px;
+  color: var(--primary-strong);
+  font-weight: 900;
+}
+
+.result-detail p {
+  margin: 8px 0;
+}
+
+.result-detail small {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .feedback-box strong,
 .advice-list strong {
   display: block;
@@ -758,6 +793,7 @@ select:focus-visible {
   .status-grid,
   .choice-list.two-col,
   .auto-score-grid,
+  .result-detail-grid,
   .word-strip,
   .word-strip.spaced {
     grid-template-columns: 1fr;
